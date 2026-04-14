@@ -9,6 +9,7 @@ module.exports = (sequelize, DataTypes) => {
             // define association here
             Subscription.belongsTo(models.User, { foreignKey: 'user_id', as: 'user' });
             Subscription.belongsTo(models.Tariff, { foreignKey: 'tariff_id', as: 'tariff' });
+            Subscription.belongsTo(models.Promocode, { foreignKey: 'promocode_id', as: 'promocode' });
         }
     }
     Subscription.init({

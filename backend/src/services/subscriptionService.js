@@ -1,6 +1,6 @@
 // backend/src/services/subscriptionService.js
 const { Subscription, User, Tariff } = require('../../models');
-const { Op } = require('sequelize'); // Для операторов Sequelize
+const { Op } = require('sequelize');
 
 const subscriptionService = {
     /**
@@ -21,7 +21,7 @@ const subscriptionService = {
     async updateSubscription(id, updateData) {
         return Subscription.update(updateData, {
             where: { id },
-            returning: true, // Возвращает обновленные записи
+            returning: true,
         });
     },
 
@@ -38,6 +38,7 @@ const subscriptionService = {
 
     /**
      * Находит активную подписку для пользователя.
+     * Активной считается оплаченная и не истекшая подписка.
      * @param {number} userId - ID пользователя.
      * @returns {Promise<Subscription|null>} Активная подписка или null.
      */
@@ -48,9 +49,8 @@ const subscriptionService = {
                 user_id: userId,
                 is_active: true,
                 is_paid: true,
-                // Дополнительно: endDate должен быть в будущем
                 end_date: {
-                    [Op.gte]: now
+                    [Op.gte]: now // Дата окончания должна быть больше или равна текущей
                 }
             },
             include: [{ model: Tariff, as: 'tariff' }]
@@ -58,18 +58,46 @@ const subscriptionService = {
     },
 
     /**
-     * Получает все подписки пользователя.
+     * Получает все подписки пользователя (для внутреннего использования, без фильтрации).
+     * Фильтрация для отображения в боте будет на уровне UI.
      * @param {number} userId - ID пользователя.
      * @returns {Promise<Subscription[]>} Массив подписок.
      */
-    async getUserSubscriptions(userId) {
+    async getUserSubscriptions(userId) { // <-- ЛОГИКА ОСТАЕТСЯ, но фильтрация UI
         return Subscription.findAll({
             where: { user_id: userId },
             include: [{ model: Tariff, as: 'tariff' }],
             order: [['created_at', 'DESC']]
         });
+    },
+
+    /**
+     * Находит единственную неоплаченную и неактивную подписку для пользователя.
+     * Используется для очистки "висящих" подписок.
+     * @param {number} userId - ID пользователя.
+     * @returns {Promise<Subscription|null>} Неоплаченная подписка или null.
+     */
+    async getPendingSubscriptionForUser(userId) { // <-- НОВАЯ ФУНКЦИЯ
+        return Subscription.findOne({
+            where: {
+                user_id: userId,
+                is_paid: false,
+                is_active: false
+            },
+            order: [['created_at', 'DESC']] // Берем последнюю
+        });
+    },
+
+    /**
+     * Удаляет подписку по ID.
+     * @param {number} subscriptionId - ID подписки для удаления.
+     * @returns {Promise<number>} Количество удаленных записей.
+     */
+    async deleteSubscription(subscriptionId) { // <-- НОВАЯ ФУНКЦИЯ
+        return Subscription.destroy({
+            where: { id: subscriptionId }
+        });
     }
-    // Здесь будут другие методы для работы с подписками
 };
 
 module.exports = subscriptionService;

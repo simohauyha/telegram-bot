@@ -1,8 +1,8 @@
-// backend/migrations/20260409081435-create-subscription.js
+// backend/migrations/XXXXXX-create-user-promocode.js
 'use strict';
 module.exports = {
     up: async (queryInterface, Sequelize) => {
-        await queryInterface.createTable('Subscriptions', {
+        await queryInterface.createTable('UserPromocodes', {
             id: {
                 allowNull: false,
                 autoIncrement: true,
@@ -19,43 +19,20 @@ module.exports = {
                 onUpdate: 'CASCADE',
                 onDelete: 'CASCADE'
             },
-            tariff_id: {
+            promocode_id: {
                 type: Sequelize.INTEGER,
                 allowNull: false,
                 references: {
-                    model: 'Tariffs', // Имя таблицы Tariffs
+                    model: 'Promocodes', // Имя таблицы Promocodes
                     key: 'id',
                 },
                 onUpdate: 'CASCADE',
-                onDelete: 'RESTRICT'
+                onDelete: 'RESTRICT' // Нельзя удалить промокод, если он активирован
             },
-            hiddify_key: {
-                type: Sequelize.TEXT,
-                allowNull: true
-            },
-            hiddify_uuid: {
-                type: Sequelize.UUID,
-                // defaultValue: Sequelize.UUIDV4, // Это было удалено в Шаге 6, так что здесь его быть не должно
-                unique: true,
-                allowNull: false
-            },
-            start_date: {
-                type: Sequelize.DATE,
-                allowNull: true
-            },
-            end_date: {
-                type: Sequelize.DATE,
-                allowNull: true
-            },
-            is_active: {
-                type: Sequelize.BOOLEAN,
+            activated_at: {
                 allowNull: false,
-                defaultValue: false
-            },
-            is_paid: {
-                type: Sequelize.BOOLEAN,
-                allowNull: false,
-                defaultValue: false
+                type: Sequelize.DATE,
+                defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
             },
             created_at: {
                 allowNull: false,
@@ -67,10 +44,17 @@ module.exports = {
                 type: Sequelize.DATE,
                 defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
             }
-            // <-- promocode_id НЕ ДОЛЖЕН БЫТЬ ЗДЕСЬ -->
+        });
+
+        // Добавляем составной уникальный индекс
+        await queryInterface.addConstraint('UserPromocodes', {
+            fields: ['user_id', 'promocode_id'],
+            type: 'unique',
+            name: 'user_promocode_unique_constraint'
         });
     },
     down: async (queryInterface, Sequelize) => {
-        await queryInterface.dropTable('Subscriptions');
+        await queryInterface.removeConstraint('UserPromocodes', 'user_promocode_unique_constraint'); // Удаляем индекс при откате
+        await queryInterface.dropTable('UserPromocodes');
     }
 };

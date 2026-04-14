@@ -3,7 +3,8 @@ const mainMenuCallbackHandlers = require('./mainMenuCallbacks');
 const tariffCallbackHandlers = require('./tariffsCallbacks');
 const subscriptionCallbackHandlers = require('./subscriptionHandlers');
 const { sendMainMenu } = require('../utils/menu');
-const { User, Subscription } = require('../../../models'); // Прямой импорт моделей
+const { resetUserState, getUserState, states } = require('../utils/conversationStates'); // <-- ИЗМЕНЕНО: Добавлен getUserState, states
+const { User, Subscription} = require('../../../models'); // Прямой импорт моделей
 
 /**
  * Словарь для хранения обработчиков статических колбэков.
@@ -18,8 +19,14 @@ const staticHandlers = {
     'tariffs': tariffCallbackHandlers.tariffsListHandler,
     'my_subscriptions': subscriptionCallbackHandlers.mySubscriptionsHandler,
     'main_menu': async (bot, chatId, callbackQueryId, data, callbackQuery) => {
-        await bot.answerCallbackQuery(callbackQueryId, { text: 'Возвращаюсь в главное меню.' });
+        try { 
+            await bot.answerCallbackQuery(callbackQueryId, { text: 'Возвращаюсь в главное меню.' });
+        } catch (err) { 
+            console.warn(`[CALLBACK_ERROR] Ошибка ответа на callbackQuery ID ${callbackQueryId} (main_menu): ${err.message}`);
+        }
         await sendMainMenu(bot, chatId, 'Возвращаюсь в главное меню.');
+        resetUserState(chatId); // <-- ИЗМЕНЕНО: Полный сброс состояния
+        console.log(`[STATE] Пользователь ${chatId} все состояния сброшены.`);
     },
 };
 
@@ -34,7 +41,12 @@ async function handleCancelPurchase(bot, callbackQuery) {
     const telegram_id = callbackQuery.from.id;
     const subscriptionIdToCancel = parseInt(data.split('_')[2], 10);
 
-    await bot.answerCallbackQuery(callbackQueryId, { text: 'Отмена покупки.' });
+    try {
+        await bot.answerCallbackQuery(callbackQueryId, { text: 'Отмена покупки.' });
+    } catch (err) { 
+        console.warn(`[CALLBACK_ERROR] Ошибка ответа на callbackQuery ID ${callbackQueryId} (отмена): ${err.message}`);
+      
+    }
 
     try {
         const user = await User.findOne({ where: { telegram_id } });
@@ -42,6 +54,7 @@ async function handleCancelPurchase(bot, callbackQuery) {
             console.warn(`⚠️ Попытка отмены подписки от неизвестного пользователя ${telegram_id}`);
             await bot.sendMessage(chatId, 'Не удалось найти ваш профиль. Пожалуйста, начните с команды /start.');
             await sendMainMenu(bot, chatId);
+            resetUserState(chatId); // <-- ИЗМЕНЕНО: Полный сброс
             return;
         }
 
@@ -63,13 +76,24 @@ async function handleCancelPurchase(bot, callbackQuery) {
 
         // Если все проверки пройдены, удаляем подписку
         await subscriptionToCancel.destroy();
+        console.log(`[CLEANUP] Явная отмена. Удалена подписка ID ${subscriptionIdToCancel}.`);
+        // <-- ДОБАВЛЕНО: Очищаем связанную активацию промокода, если она не привязана к другой подписке
+        const userPromocodeActivation = await UserPromocode.findOne({
+            where: { applied_to_subscription_id: subscriptionIdToCancel, is_applied: false }
+        });
+        if (userPromocodeActivation) {
+            console.log(`[CLEANUP] Удаляю неиспользованную активацию промокода ID ${userPromocodeActivation.id} связанную с отмененной подпиской.`);
+            await userPromocodeActivation.destroy();
+        }
         await bot.sendMessage(chatId, 'Неоплаченная подписка удалена. Возвращаюсь в главное меню.');
         await sendMainMenu(bot, chatId);
+        resetUserState(chatId); // <-- ИЗМЕНЕНО: Полный сброс после успешной отмены
 
     } catch (error) {
         console.error(`❌ Ошибка при отмене подписки ${subscriptionIdToCancel} для пользователя ${telegram_id}:`, error);
         await bot.sendMessage(chatId, 'Произошла ошибка при отмене подписки. Пожалуйста, попробуйте позже.');
         await sendMainMenu(bot, chatId);
+        resetUserState(chatId); // <-- ИЗМЕНЕНО: Полный сброс в случае ошибки
     }
 }
 
@@ -87,7 +111,6 @@ const dispatchCallback = async (bot, callbackQuery) => {
     const telegram_id = callbackQuery.from.id;
 
     console.log(`➡️ Получен callback_query: ${data} от пользователя ${chatId} (Telegram ID: ${telegram_id})`);
-
     // 1. Попытка обработать статические колбэки
     const staticHandler = staticHandlers[data]; // Используем объект вместо Map для простоты
     if (staticHandler) {
@@ -98,6 +121,7 @@ const dispatchCallback = async (bot, callbackQuery) => {
     // 2. Обработка динамических колбэков по префиксу
     if (data.startsWith('buy_tariff_')) {
         const tariffId = parseInt(data.split('_')[2], 10);
+        console.log(`[DISPATCHER] Обнаружен колбэк 'buy_tariff_'. Вызываю buyTariffHandler для тарифа ID: ${tariffId}.`);
         await tariffCallbackHandlers.buyTariffHandler(bot, chatId, callbackQueryId, tariffId, callbackQuery);
         return;
     }
@@ -121,6 +145,7 @@ const dispatchCallback = async (bot, callbackQuery) => {
     await bot.answerCallbackQuery(callbackQueryId, { text: 'Неизвестная команда. Пожалуйста, выберите опцию из меню.', show_alert: true });
     await sendMainMenu(bot, chatId, 'Я не понял вашу команду. Пожалуйста, выберите что-то из списка.');
     console.warn(`⚠️ Неизвестный callback_query: ${data} от пользователя ${chatId}`);
+    resetUserState(chatId); // <-- ИЗМЕНЕНО: Полный сброс в случае неизвестной команды
 };
 
 module.exports = dispatchCallback;
